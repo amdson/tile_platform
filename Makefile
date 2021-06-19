@@ -1,6 +1,6 @@
 #OBJS specifies which files to compile as part of the project
-OBJS = game_main.cpp timer.cpp game_world.cpp
-TEST_OBJS = test_game.cpp game_world.cpp
+OBJS = game_main.cpp timer.cpp game_world.cpp renderer.cpp
+TEST_OBJS = test_game.cpp timer.cpp game_world.cpp renderer.cpp
 
 #CC specifies which compiler we're using
 CC = g++

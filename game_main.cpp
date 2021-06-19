@@ -7,30 +7,13 @@
 #include <iostream>
 #include <vector>
 #include <glm/glm.hpp>
-#include <json.hpp>
-
-
 
 #include "timer.hpp"
 #include "game_world.hpp"
+#include "renderer.hpp"
+#include "particle.hpp"
 
 using namespace std; 
-// for convenience
-using json = nlohmann::json;
-
-std::ostream& operator<< (std::ostream &out, glm::dvec2 data) {
-    out << "(" << data.x << ', ' << data.y << ")";  
-    return out;
-}
-
-std::ostream& operator<< (std::ostream &out, Collision c) {
-    out << "Collusion: " << c.pos << " " << c.norm << " " << c.t; 
-    return out;
-}
-
-//Screen dimension constants
-const int SCREEN_WIDTH = 640;
-const int SCREEN_HEIGHT = 480;
 
 const int SCREEN_FPS = 60;
 const int SCREEN_TICK_PER_FRAME = 1000 / SCREEN_FPS;
@@ -39,70 +22,10 @@ const int UPDATES_PER_SECOND = 50;
 const int TICKS_PER_UPDATE = 1000 / UPDATES_PER_SECOND; 
 const int TICKS_PER_SECOND = 1000; 
 
-//Starts up SDL and creates window
-bool init();
-
-//Loads media
-bool loadMedia();
-
-//Frees media and shuts down SDL
-void close();
-
-SDL_Texture* loadTextureFromFile(char* path);
-
-struct Sprite {
-	int frames; 
-	SDL_Rect r; //Location in texture. 
-	SDL_Texture* texture; 
-}; 
-
-struct Particle {
-	glm::dvec2 pos;
-	glm::dvec2 vel; 
-	glm::dvec2 dim; 
-	Sprite s; 
-	int timestep; //Timestep starting from creation. 
-	int change_interval; 
-	int lifetime; 
-	bool gravity; 
-};
-
-void renderSprite(Sprite s, SDL_Rect r, int frame); 
 void renderParticle(Particle p); 
 
-//The window we'll be rendering to
-SDL_Window* gWindow = NULL;
-
-//The window renderer
-SDL_Renderer* gRenderer = NULL;
-
-SDL_Texture* loadTextureFromFile(char *path) {
-	//The final texture
-	SDL_Texture* newTexture = NULL;
-
-	//Load image at specified path
-	SDL_Surface* loadedSurface = IMG_Load( path);
-	if( loadedSurface == NULL ) {
-		printf( "Unable to load image %s! SDL_image Error: %s\n", path, IMG_GetError() );
-		return NULL; 
-	}
-	//Color key image
-	SDL_SetColorKey( loadedSurface, SDL_TRUE, SDL_MapRGB( loadedSurface->format, 0, 0xFF, 0xFF ) );
-
-	//Create texture from surface pixels
-	newTexture = SDL_CreateTextureFromSurface( gRenderer, loadedSurface );
-	if( newTexture == NULL ) {
-		printf( "Unable to create texture from %s! SDL Error: %s\n", path, SDL_GetError() );
-		return NULL; 
-	}
-	//Get rid of old loaded surface
-	SDL_FreeSurface( loadedSurface );
-	return newTexture; 
-}
-
 SDL_Texture *TILE_SHEET; 
-SDL_Texture *SPRITE_SHEET; 
-SDL_Texture *DOT_SHEET; 
+SpriteSheet *sprite_sheet; 
 
 SDL_Rect TILE_LOCATION = {0, 0, TILE_PIXELS, TILE_PIXELS}; 
 SDL_Rect SPRITE_LOCATION = {0, 0, 32, 32}; 
@@ -110,76 +33,14 @@ SDL_Rect SPRITE_LOCATION = {0, 0, 32, 32};
 Chunk main_chunk; //Initialized to all zeros. 
 Entity player; 
 PlayerController player_controller {entity_id: player.id}; 
+Sprite player_sprite; 
 
 Camera camera; 
 
-
-bool init() {
-	//Initialize SDL
-	if( SDL_Init( SDL_INIT_VIDEO ) < 0 ) {
-		printf( "SDL could not initialize! %s\n", SDL_GetError() );
-		return false;
-	}
-
-	//Set texture filtering to linear
-	if( !SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" ) ) {
-		printf( "Warning: Linear texture filtering not enabled!" );
-	}
-	
-	//Create window
-	gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
-	if( gWindow == NULL ) {
-		printf( "Window could not be created! SDL Error: %s\n", SDL_GetError() );
-		return false;
-	}
-
-	//Create renderer for window
-	gRenderer = SDL_CreateRenderer( gWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC );
-	if( gRenderer == NULL ) {
-		printf( "Renderer could not be created! SDL Error: %s\n", SDL_GetError() );
-		return false;
-	}
-	//Initialize renderer color
-	SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
-
-	//Initialize PNG loading
-	int imgFlags = IMG_INIT_PNG;
-	if( !( IMG_Init( imgFlags ) & imgFlags ) ) {
-		printf( "SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError() );
-		return false;
-	}
-
-	//Initialize SDL_ttf
-	if( TTF_Init() == -1 ) {
-		printf( "SDL_ttf could not initialize! SDL_ttf Error: %s\n", TTF_GetError() );
-		return false;
-	}
-	return true;
-}
-
 bool loadMedia() {
-	TILE_SHEET = loadTextureFromFile("resources/TileTextures.png"); 
-	SPRITE_SHEET = loadTextureFromFile("resources/sprite_sheet.png"); 
-	DOT_SHEET = loadTextureFromFile("resources/dot.bmp"); 
-	return ~(TILE_SHEET == NULL || SPRITE_SHEET == NULL); 
-}
-
-void close()
-{
-	//Free loaded images
-	SDL_DestroyTexture(TILE_SHEET);
-	SDL_DestroyTexture(SPRITE_SHEET);
-
-	//Destroy window	
-	SDL_DestroyRenderer( gRenderer );
-	SDL_DestroyWindow( gWindow );
-	gWindow = NULL;
-	gRenderer = NULL;
-
-	//Quit SDL subsystems
-	TTF_Quit();
-	IMG_Quit();
-	SDL_Quit();
+	TILE_SHEET = loadTextureFromFile("resources/tile_sheet.png"); 
+	sprite_sheet = new SpriteSheet("resources/sprite_entries.json"); 
+	return ~(TILE_SHEET == NULL || sprite_sheet == NULL); 
 }
 
 int main( int argc, char* args[] ) {
@@ -188,6 +49,7 @@ int main( int argc, char* args[] ) {
 		printf( "Failed to initialize!\n" );
 		exit(EXIT_FAILURE); 
 	}
+
 	if( !loadMedia() ) {
 		printf( "Failed to load media!\n" );
 		exit(EXIT_FAILURE); 
@@ -203,6 +65,7 @@ int main( int argc, char* args[] ) {
 	player.pos = glm::dvec2(5, 5); 
 	player.vel = glm::dvec2(0, 0); 
 	player.dim = glm::dvec2(0.5, 0.5); 
+	player_sprite = sprite_sheet->getSpriteEntry("player_dot"); 
 
 	//Main loop flag
 	bool quit = false;
@@ -437,20 +300,30 @@ int main( int argc, char* args[] ) {
 			MovementState s = player_controller.prev_state;
 			MovementState e = player_controller.state; 
 			if(s != e) {
-				if(e == MovementState::AIR_JUMP || e == MovementState::GROUND_JUMP) {
-					Particle jump_cloud = {
-						
+				if(e == MovementState::AIR_JUMP) {
+					glm::dvec2 cv = glm::dvec2(-0.05*player_controller.inp.x, 0.2*std::min(-player.vel.y, 0.0)); 
+					Particle jump_cloud = {pos: player.pos - glm::dvec2(player.dim.x*0.5, player.dim.y+0.05), vel: cv, 
+											dim: glm::dvec2(1, 1), s: sprite_sheet->getSpriteEntry("jump_cloud"),
+											timestep: 0,
+											change_interval: 8,
+											lifetime: 23,
+											gravity: false
 					};
+					particles.push_back(jump_cloud); 
+				} else if(e == MovementState::GROUND_JUMP) {
+					Particle jump_flash = {pos: player.pos - glm::dvec2(player.dim.x*0.5, player.dim.y+0.05), vel: glm::dvec2(0, 0), 
+											dim: glm::dvec2(1, 1), s: sprite_sheet->getSpriteEntry("jump_flash"),
+											timestep: 0,
+											change_interval: 1,
+											lifetime: 16,
+											gravity: false
+					};
+					particles.push_back(jump_flash); 
 				}
 			}
-
-
 			countedUpdates ++; 
 			accumulator -= TICKS_PER_UPDATE; 
 		}
-
-		
-
 
 		// Render ////////////////////////////////////////////////////////////
 
@@ -476,24 +349,22 @@ int main( int argc, char* args[] ) {
 			glm::dvec2 tile_pos = glm::dvec2(main_chunk.col*CHUNK_WIDTH + col*TILE_WIDTH, main_chunk.row*CHUNK_WIDTH + row*TILE_WIDTH);
 			glm::dvec2 tile_dim = glm::dvec2(TILE_WIDTH, TILE_WIDTH); 
 			SDL_Rect tile_dest = toRect(tile_pos, tile_dim, camera); 
-			//cout << tile_dest.x << " " << tile_dest.y <<  " " << tile_dest.w << " " << tile_dest.h << "\n"; 
 
 			SDL_RenderCopy(gRenderer, TILE_SHEET, &tile_source, &tile_dest);
 		}
 		//Render player. 
 		SDL_Rect sprite_dest = toRect(player.pos, player.dim, camera); 
-		SDL_RenderCopy(gRenderer, DOT_SHEET, NULL, &sprite_dest); 
-
+		renderSprite(player_sprite, &sprite_dest, 0); 
 
 
 		//Render particles
 		for (int i = 0; i < particles.size(); i++) {
 			Particle p = particles[i]; 
 			SDL_Rect particle_dest = toRect(p.pos, p.dim, camera); 
+			
 			int frame = (p.timestep / p.change_interval) % p.s.frames; 
-			SDL_Rect particle_src = p.s.r;
-			particle_src.x += frame * particle_src.w;  
-			SDL_RenderCopy(gRenderer, SPRITE_SHEET, &particle_src, &particle_dest); 
+			// printf("particle timestep %d, frame %d, interval %d\n", p.timestep, frame, p.change_interval); 
+			renderSprite(p.s, &particle_dest, frame); 
 		}
 
 		//Update screen
@@ -510,8 +381,11 @@ int main( int argc, char* args[] ) {
 			SDL_Delay( SCREEN_TICK_PER_FRAME - frameTicks );
 		}
 	}
+
+	SDL_DestroyTexture(TILE_SHEET);
+
 	//Free resources and close SDL
-	close();
+	close_SDL();
 
 	return 0;
 }
