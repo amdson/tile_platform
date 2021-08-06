@@ -4,6 +4,11 @@ bool operator==(const BlockIndices b1, const BlockIndices b2){
 	return b1.col == b2.col && b1.row == b2.row && b1.chunk_col == b2.chunk_col && b1.chunk_row == b2.chunk_row; 
 }
 
+bool box_intersect(glm::dvec2 p1, glm::dvec2 d1, glm::dvec2 p2, glm::dvec2 d2) {
+	p2 -= p1;
+	return p2.x >= d2.x && p2.y >= d2.y && p2.x <= d1.x && p2.y <= d1.y; 
+}
+
 SDL_Point toPixelPoint(glm::dvec2 p, Camera c) {
 	glm::dvec2 frame_pos = p - c.pos;
 	int x = (int) ((frame_pos.x / c.dim.x) * ((double) c.SCREEN_HEIGHT)); 
@@ -267,7 +272,7 @@ void PlayerController::applyContacts(glm::dvec2 v, std::vector<TileContact> *t) 
 	}
 	if(state != output) {
 		state = output;
-		printf("A-switching to state %d at timestep %d\n", state, timestep); 
+		// printf("A-switching to state %d at timestep %d\n", state, timestep); 
 		timestep = 0;  
 	}
 }
@@ -380,7 +385,7 @@ glm::dvec2 PlayerController::applyControls(glm::dvec2 v, std::vector<TileContact
 	timestep += 1; 
 	if(next_state != state) {
 		state = next_state; 
-		printf("C-switching to state %d at timestep %d\n", state, timestep); 
+		// printf("C-switching to state %d at timestep %d\n", state, timestep); 
 		timestep = 0; 
 	}
 	return v; 

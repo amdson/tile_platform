@@ -96,6 +96,14 @@ struct PlayerController {
 	glm::dvec2 applyControls(glm::dvec2 v, std::vector<TileContact> *t); 
 }; 
 
+struct PlayerData {
+	int entity_id; 
+	int max_health; 
+	int health; 
+	int max_stamina; 
+	int stamina; 
+}; 
+
 
 //Converts a point in units to a point in pixels. 
 SDL_Point toPixelPoint(glm::dvec2 p); 

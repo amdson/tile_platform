@@ -186,6 +186,9 @@ int main( int argc, char* args[] ) {
 					}
 				}
 			}
+
+			
+
 			// printf("initial size %d\n", tile_contacts.size()); 
 			//Filter contacts for existence.
 			int valid_count = 0;  
@@ -275,6 +278,8 @@ int main( int argc, char* args[] ) {
 					player.vel -= fc.norm * norm_vel; 
 				} else {
 					//Bounce vel. 
+					TileContact col_cont = {fc.pos, fc.norm, contact_block, fc.s, true}; 
+					tile_contacts.push_back(col_cont);
 					player.vel -= 1.4*fc.norm * norm_vel; 
 				}
 			}
