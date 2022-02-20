@@ -230,11 +230,11 @@ void PlayerController::updateInputs(InputState new_inp) {
 }
 
 //Identify which sides the player is in contact with, and update movement state. 
-void PlayerController::applyContacts(glm::dvec2 v, std::vector<TileContact> *t) {
+void PlayerController::applyContacts(glm::dvec2 v, TileContact *t, int num_contacts) {
 	//Check which sides the player is in contact with. 
 	std::fill_n(contact_sides, 4, false);
-	for (int i = 0; i < t->size(); i++) {
-		TileContact tc = t->at(i); 
+	for (int i = 0; i < num_contacts; i++) {
+		TileContact tc = t[i]; 
 		// printf("side val %d\n", tc.s); 
 		contact_sides[tc.s] = true; 
 	}
@@ -277,9 +277,9 @@ void PlayerController::applyContacts(glm::dvec2 v, std::vector<TileContact> *t) 
 	}
 }
 
-glm::dvec2 PlayerController::applyControls(glm::dvec2 v, std::vector<TileContact> *t) {
+glm::dvec2 PlayerController::applyControls(glm::dvec2 v, TileContact *t, int num_contacts) {
 	prev_state = state; 
-	applyContacts(v, t); 
+	applyContacts(v, t, num_contacts); 
 	//Controller physics
 	MovementState next_state = state; 
 	bool right_face = contact_sides[ContactSide::RIGHT]; 
@@ -426,4 +426,101 @@ bool checkTileContactMaintained(glm::dvec2 p, glm::dvec2 d, TileContact t, Block
 	glm::dvec2 tile_pos = glm::dvec2(b.col, b.row) * TILE_WIDTH - d;
 	return t.valid && p.x >= tile_pos.x - CONTACT_BUFFER && p.x <= tile_pos.x + d.x + TILE_WIDTH + CONTACT_BUFFER &&
 			p.y >= tile_pos.y - CONTACT_BUFFER && p.y <= tile_pos.y + d.y + TILE_WIDTH + CONTACT_BUFFER; 
+}
+
+void filterTileContacts(Entity *e, std::vector<BlockIndices> *block_indices, Chunk *main_chunk) {
+	//Filter contacts for existence.
+	block_indices->clear();
+	int valid_count = 0;  
+	for (int i = 0; i < e->num_contacts; i++) {
+		TileContact t = e->tile_contacts[i]; 
+		bool is_valid = checkTileContact(e->pos, e->dim, t); 
+		if(!is_valid) {
+			block_indices->clear();
+			listTileNeighborSquares(t.b, block_indices); 
+			for (int i = 0; i < block_indices->size(); i++) {
+				BlockIndices b = block_indices->at(i); 
+				if(checkTileContactMaintained(e->pos, e->dim, t, b) && 
+					main_chunk->tiles[b.row*CHUNK_TILES + b.col].tile_id > 0) {
+					t.b = b; 
+					is_valid = true; 
+					break; 
+				}
+			}
+		}
+		if(is_valid) {
+			e->tile_contacts[valid_count] = t; //Save contact for future loops. 
+			valid_count += 1; 
+		}
+	}
+	e->num_contacts = valid_count; 
+}
+
+void tilePhysics(Entity *e, std::vector<BlockIndices> *block_indices, Chunk *main_chunk) {
+	//Constrain velocity with tile contacts. 
+	for (int i = 0; i < e->num_contacts; i++) {
+		TileContact t = e->tile_contacts[i]; 
+		e->vel = getConstrainedSurfaceVel(e->vel, t.norm); 
+	}
+	
+	//Tentative new position. 	
+	e->newPos = e->pos + e->vel; 
+
+	Collision fc; 
+	fc.t = INFINITY; 
+	BlockIndices contact_block; //Block first contact is with. 
+
+	block_indices->clear(); 
+	//List squares that could feasibly collide with entity 
+	//TODO Make sure to handle edge case of player path missing blocks, but player block hitting them. 
+	listIntersectingSquares(e->pos, e->newPos, block_indices); 
+	listIntersectingSquares(e->pos + e->dim, e->newPos + e->dim, block_indices); 
+	listNeighborSquares(e->pos, block_indices); 
+
+	//Iterate through blocks that are near player and check for collisions. 
+	for (int i = 0; i < block_indices->size(); i++) {
+		BlockIndices b = block_indices->at(i); 
+		if(b.row >= 0 && b.row < CHUNK_TILES && b.col >= 0 && b.col < CHUNK_TILES) {
+			//Check that tile isn't already accounted for in contacts. 
+			bool not_contact = true; 
+			for (int i = 0; i < e->num_contacts; i++) {
+				TileContact t = e->tile_contacts[i];
+				if(t.b == b) {
+					not_contact = false; 
+					break; 
+				}
+			}
+			if(not_contact && main_chunk->tiles[b.row*CHUNK_TILES + b.col].tile_id > 0) {
+				//Handle collusion. 
+				Collision c = getTileBoxCollision(b, e->pos, e->newPos, e->dim); 
+				if(c.t < fc.t && c.t >= 0) {
+					fc = c; 
+					contact_block = b; 
+					// cout << "Found collusion at time: " << fc.t << "\n"; 
+					// printf("Player pos %f, %f\n", fc.pos.x, fc.pos.y); 						
+				}
+			}
+		}
+	}
+
+	if(fc.t > 1 || fc.t < 0) {
+		e->pos = e->newPos; 
+	} else {
+		double norm_vel = glm::dot(e->vel, fc.norm);
+		e->pos = fc.pos; 
+		if(norm_vel >= -0.3) {
+			//Store contact to constrain motion. 
+			TileContact col_cont = {fc.pos, fc.norm, contact_block, fc.s, true}; 
+			e->tile_contacts[e->num_contacts] = col_cont; 
+			e->num_contacts += 1; 
+			//Remove normal component of vel
+			e->vel -= fc.norm * norm_vel; 
+		} else {
+			//Bounce vel. 
+			TileContact col_cont = {fc.pos, fc.norm, contact_block, fc.s, true}; 
+			e->tile_contacts[e->num_contacts] = col_cont; 
+			e->num_contacts += 1; 
+			e->vel -= 1.4*fc.norm * norm_vel; 
+		}
+	}
 }

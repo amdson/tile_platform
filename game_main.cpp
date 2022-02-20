@@ -12,6 +12,8 @@
 #include "game_world.hpp"
 #include "renderer.hpp"
 #include "particle.hpp"
+#include "combat.hpp"
+#include "inputs.hpp"
 
 using namespace std; 
 
@@ -65,6 +67,8 @@ int main( int argc, char* args[] ) {
 	player.pos = glm::dvec2(5, 5); 
 	player.vel = glm::dvec2(0, 0); 
 	player.dim = glm::dvec2(0.5, 0.5); 
+	player.num_contacts = 0; 
+	// memset(&player.tile_contacts, 0, 16); 
 	player_sprite = sprite_sheet->getSpriteEntry("player_dot"); 
 
 	//Main loop flag
@@ -94,11 +98,14 @@ int main( int argc, char* args[] ) {
 	Uint32 currentTime = 0; 
 
 	vector<BlockIndices> block_indices; 
-	vector<TileContact> tile_contacts; 
 	vector<Particle> particles; 
+	vector<Entity> entities; 
+	vector<Hitbox> hitboxes;
+	vector<Hurtbox> hurtboxes; 
+
 
 	//While application is running
-	while( !quit ) {
+	while(!quit ) {
 		Uint32 newTime = SDL_GetTicks();
 		Uint32 frameTime = newTime - currentTime; 
 		currentTime = newTime; 
@@ -106,59 +113,9 @@ int main( int argc, char* args[] ) {
 		accumulator += frameTime; 
 
 		// Game updates //////////////////////////////////////////////////////////
-
 		while (accumulator*UPDATES_PER_SECOND > TICKS_PER_SECOND) {
-			InputState curr_input = player_controller.inp; 
-			//Handle events on queue
-			while( SDL_PollEvent( &e ) != 0 ) {
-				//User requests quit
-				if( e.type == SDL_QUIT ) {
-					quit = true;
-				}
-				//If a key was pressed
-				else if( e.type == SDL_KEYDOWN && e.key.repeat == 0) {
-					//Adjust the velocity
-					switch( e.key.keysym.sym ) {
-						case SDLK_UP: curr_input.y += 1; break;
-						case SDLK_DOWN: curr_input.y += -1; break;
-						case SDLK_LEFT: curr_input.x += -1; break;
-						case SDLK_RIGHT: curr_input.x += 1; break;
-						case SDLK_w: curr_input.y += 1; break;
-						case SDLK_s: curr_input.y += -1; break;
-						case SDLK_a: curr_input.x += -1; break;
-						case SDLK_d: curr_input.x += 1; break;
-					}
-				}
-				//If a key was released
-				else if( e.type == SDL_KEYUP && e.key.repeat == 0) {
-					//Adjust the velocity
-					switch( e.key.keysym.sym ) {
-						case SDLK_UP: curr_input.y -= 1; break;
-						case SDLK_DOWN: curr_input.y -= -1; break;
-						case SDLK_LEFT: curr_input.x -= -1; break;
-						case SDLK_RIGHT: curr_input.x -= 1; break;
-						case SDLK_w: curr_input.y -= 1; break;
-						case SDLK_s: curr_input.y -= -1; break;
-						case SDLK_a: curr_input.x -= -1; break;
-						case SDLK_d: curr_input.x -= 1; break;
-					}
-				}
-				else if(e.type == SDL_MOUSEMOTION) {
-					curr_input.mouse_pos.x = e.motion.x;
-					curr_input.mouse_pos.y = e.motion.y; 
-				} 
-				else if(e.type == SDL_MOUSEBUTTONDOWN) {
-					switch(e.button.button) {
-						case SDL_BUTTON_LEFT: curr_input.mouse_down = true; break; 
-						case SDL_BUTTON_RIGHT: curr_input.right_mouse_down = true; break; 
-					}
-				} else if(e.type == SDL_MOUSEBUTTONUP) {
-					switch(e.button.button) {
-						case SDL_BUTTON_LEFT: curr_input.mouse_down = false; break; 
-						case SDL_BUTTON_RIGHT: curr_input.right_mouse_down = false; break; 
-					}
-				}
-			}
+			InputState curr_input = getSDLInputs(player_controller.inp); 
+			quit = curr_input.quit; 
 			player_controller.updateInputs(curr_input);
 
 			//Step
@@ -168,6 +125,7 @@ int main( int argc, char* args[] ) {
 			// Apply contact contraints. 
 			// Calculate candidate positions. 
 			// Detect and resolve collisions. 
+			// Generate particles
 
 			//Place blocks
 			if(player_controller.inp.mouse_down) {
@@ -187,101 +145,20 @@ int main( int argc, char* args[] ) {
 				}
 			}
 
-			
-
-			// printf("initial size %d\n", tile_contacts.size()); 
-			//Filter contacts for existence.
-			int valid_count = 0;  
-			for (int i = 0; i < tile_contacts.size(); i++) {
-				TileContact t = tile_contacts[i]; 
-				bool is_valid = checkTileContact(player.pos, player.dim, t); 
-				if(!is_valid) {
-					block_indices.clear();
-					listTileNeighborSquares(t.b, &block_indices); 
-					for (int i = 0; i < block_indices.size(); i++) {
-						BlockIndices b = block_indices[i]; 
-						if(checkTileContactMaintained(player.pos, player.dim, t, b) && 
-							main_chunk.tiles[b.row*CHUNK_TILES + b.col].tile_id > 0) {
-							t.b = b; 
-							is_valid = true; 
-							break; 
-						}
-					}
-				}
-				if(is_valid) {
-					tile_contacts[valid_count] = t; //Save contact for future loops. 
-					valid_count += 1; 
-				}
-			}
-			// printf("contact num %d\n", valid_count); 
-			tile_contacts.resize(valid_count); 
+			filterTileContacts(&player, &block_indices, &main_chunk); 
 
 			//Player Step
 			//Controls modify velocity. 
-			player.vel = player_controller.applyControls(player.vel, &tile_contacts); 
+			player.vel = player_controller.applyControls(player.vel, &player.tile_contacts[0], player.num_contacts); 
 
-			//Constrain velocity with tile contacts. 
-			for (int i = 0; i < tile_contacts.size(); i++) {
-				TileContact t = tile_contacts[i]; 
-				player.vel = getConstrainedSurfaceVel(player.vel, t.norm); 
-			}
-			
-			//Tentative new position. 	
-			player.newPos = player.pos + player.vel; 
+			tilePhysics(&player, &block_indices, &main_chunk); 
 
-			Collision fc; 
-			fc.t = INFINITY; 
-			BlockIndices contact_block; //Block first contact is with. 
-
-			block_indices.clear(); 
-			//List squares that could feasibly collide with player. 
-			//TODO Make sure to handle edge case of player path missing blocks, but player block hitting them. 
-			listIntersectingSquares(player.pos, player.newPos, &block_indices); 
-			listIntersectingSquares(player.pos + player.dim, player.newPos + player.dim, &block_indices); 
-			listNeighborSquares(player.pos, &block_indices); 
-
-			//Iterate through blocks that are near player and check for collisions. 
-			for (int i = 0; i < block_indices.size(); i++) {
-				BlockIndices b = block_indices[i]; 
-				if(b.row >= 0 && b.row < CHUNK_TILES && b.col >= 0 && b.col < CHUNK_TILES) {
-					//Check that tile isn't already accounted for in contacts. 
-					bool not_contact = true; 
-					for (int i = 0; i < tile_contacts.size(); i++) {
-						TileContact t = tile_contacts[i];
-						if(t.b == b) {
-							not_contact = false; 
-							break; 
-						}
-					}
-					if(not_contact && main_chunk.tiles[b.row*CHUNK_TILES + b.col].tile_id > 0) {
-						//Handle collusion. 
-						Collision c = getTileBoxCollision(b, player.pos, player.newPos, player.dim); 
-						if(c.t < fc.t && c.t >= 0) {
-							fc = c; 
-							contact_block = b; 
-							// cout << "Found collusion at time: " << fc.t << "\n"; 
-							// printf("Player pos %f, %f\n", fc.pos.x, fc.pos.y); 						
-						}
-					}
-				}
-			}
-			if(fc.t > 1 || fc.t < 0) {
-				player.pos = player.newPos; 
-			} else {
-				double norm_vel = glm::dot(player.vel, fc.norm);
-				player.pos = fc.pos; 
-				if(norm_vel >= -0.3) {
-					//Store contact to constrain motion. 
-					TileContact col_cont = {fc.pos, fc.norm, contact_block, fc.s, true}; 
-					tile_contacts.push_back(col_cont); //TODO give player control over contacts to maintain state better. 
-					//Remove normal component of vel
-					player.vel -= fc.norm * norm_vel; 
-				} else {
-					//Bounce vel. 
-					TileContact col_cont = {fc.pos, fc.norm, contact_block, fc.s, true}; 
-					tile_contacts.push_back(col_cont);
-					player.vel -= 1.4*fc.norm * norm_vel; 
-				}
+			//Spawn hitboxes
+			//Spawn hurtboxes
+			//Find collisions
+			if(player_controller.inp.j) {
+				Hurtbox h = {hurtboxes.size(), player.id, player.pos, glm::dvec2(0.2, 0.4)};
+				hurtboxes.push_back(h); 
 			}
 
 

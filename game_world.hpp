@@ -6,6 +6,7 @@
 #include <iostream>
 #include <math.h>  
 #include <vector>
+#include "inputs.hpp"
 
 const int TILE_PIXELS = 128; 
 const double TILE_WIDTH = 1; 
@@ -37,27 +38,6 @@ struct BlockIndices {
 
 bool operator==(const BlockIndices b1, const BlockIndices b2); 
 
-struct Entity {
-	glm::dvec2 pos; 
-	glm::dvec2 vel; 
-	glm::dvec2 newPos; 
-	glm::dvec2 dim; 
-	uint32_t id; //For reference in hashmaps, etc. 
-}; 
-
-struct InputState {
-	int id; //To match input with corresponding player / entity. 
-	int x;
-	int y;
-	SDL_Point mouse_pos; 
-	bool mouse_down; 
-	bool right_mouse_down; 
-}; 
-
-enum MovementState 
-{   GROUND, GROUND_JUMP, JUMP1, AIR_JUMP, FALLING, WALL, WALL_JUMP
-};
-
 enum ContactSide {
 	LEFT=0, RIGHT, TOP, BOTTOM
 }; 
@@ -76,6 +56,21 @@ struct TileContact {
 	bool valid; 
 }; 
 
+struct Entity {
+	glm::dvec2 pos; 
+	glm::dvec2 vel; 
+	glm::dvec2 newPos; 
+	glm::dvec2 dim; 
+	uint32_t id; //For reference in hashmaps, etc. 
+	int num_contacts; 
+	TileContact tile_contacts[16]; //Track tiles entity is in contact with. 
+	char data[1024]; //Remaining elements, subject to override. 
+}; 
+
+enum MovementState 
+{   GROUND, GROUND_JUMP, JUMP1, AIR_JUMP, FALLING, WALL, WALL_JUMP
+};
+
 struct Camera { //Used to convert units to pixels. 
 	glm::dvec2 pos; 
 	glm::dvec2 dim; 
@@ -92,8 +87,8 @@ struct PlayerController {
 	bool contact_sides[4]; 
 	int timestep; //Timestep starting from last state change. 
 	void updateInputs(InputState new_inp); 
-	void applyContacts(glm::dvec2 v, std::vector<TileContact> *t); 
-	glm::dvec2 applyControls(glm::dvec2 v, std::vector<TileContact> *t); 
+	void applyContacts(glm::dvec2 v, TileContact *t, int num_contacts); 
+	glm::dvec2 applyControls(glm::dvec2 v, TileContact *t, int num_contacts); 
 }; 
 
 struct PlayerData {
@@ -103,6 +98,8 @@ struct PlayerData {
 	int max_stamina; 
 	int stamina; 
 }; 
+
+bool box_intersect(glm::dvec2 p1, glm::dvec2 d1, glm::dvec2 p2, glm::dvec2 d2); 
 
 
 //Converts a point in units to a point in pixels. 
@@ -123,7 +120,8 @@ Collision getTileBoxCollision(BlockIndices b, glm::dvec2 p1, glm::dvec2 p2, glm:
 bool checkTileContact(glm::dvec2 p, glm::dvec2 d, TileContact t); 
 bool checkTileContactMaintained(glm::dvec2 p, glm::dvec2 d, TileContact t, BlockIndices b); 
 void invalidateContacts(std::vector<TileContact> *t, ContactSide c); 
-
+void filterTileContacts(Entity *e, std::vector<BlockIndices> *block_indices, Chunk *main_chunk);
+void tilePhysics(Entity *e, std::vector<BlockIndices> *block_indices, Chunk *main_chunk);
 
 glm::dvec2 getConstrainedSurfaceVel(glm::dvec2 v, glm::dvec2 norm); 
 

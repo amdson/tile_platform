@@ -1,6 +1,5 @@
 #include "combat.hpp"
 
-
 bool checkIntersecting(Hurtbox a, Hitbox h) {
     glm::dvec2 d = a.dim + h.dim;
     glm::dvec2 p = a.pos - h.dim; 
