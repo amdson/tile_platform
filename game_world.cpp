@@ -367,6 +367,8 @@ int Gamestate::push_firefly(glm::dvec2 p) {
 
 	HealthData *d = &health_data[health_map[fb_id]]; 
 	d->max_health = 100; d->health = 100; d->health_regen = 0; d->buffer_health = 0; d->buffer_regen = 0; 
+	AIData *ad = &ai_data[ai_map[fb_id]]; 
+	ad->type = FIREFLY;
 	return fb_id; 
 }
 
@@ -382,7 +384,7 @@ int Gamestate::push_fireball(glm::dvec2 p, glm::dvec2 v) {
 	AIData *ad = &ai_data[ai_map[fb_id]]; 
 	ad->type = FIREBALL; 
 	FireballAI *fba = &ai_data[ai_map[fb_id]].data.fa; 
-	fba->lifespan = 15; fba->power = 10; fba->tracking = false; fba->step = 0; 
+	fba->lifespan = 25; fba->power = 10; fba->tracking = false; fba->step = 0; 
 	return fb_id; 
 }
 
