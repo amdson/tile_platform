@@ -198,6 +198,10 @@ int main( int argc, char* args[] ) {
 						// printf("\n");
 						gamestate.delete_entity(ad->entity_id, gamestate.entity_gen[ad->entity_id]); 
 					}
+				} else if (ai_type = FIREFLY) {
+					Entity *e = &gamestate.entities[gamestate.entity_map[eid]]; 
+					Hitbox h = {id: gamestate.hitboxes.size(), parent_id: e->entity_id, pos: e->pos, dim: e->dim}; 
+					gamestate.hitboxes.push_back(h); 
 				}
 			}
 
