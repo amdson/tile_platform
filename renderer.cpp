@@ -84,6 +84,16 @@ void renderSprite(Sprite s, SDL_Rect *r, int frame) {
 	SDL_RenderCopy(gRenderer, s.texture, &src, r); 
 }
 
+void renderHealthbar(int health, int max_health, SDL_Rect bar_dest) {
+	int w = bar_dest.w; 
+	bar_dest.w = w*health / max_health; 
+	SDL_SetRenderDrawColor(gRenderer, 128, 0, 0, 255);
+	SDL_RenderFillRect(gRenderer, &bar_dest);
+	bar_dest.w = w; 
+	SDL_SetRenderDrawColor(gRenderer, 128, 128, 128, 255);
+	SDL_RenderDrawRect(gRenderer, &bar_dest);
+}
+
 bool init() {
 	//Initialize SDL
 	if( SDL_Init( SDL_INIT_VIDEO ) < 0 ) {

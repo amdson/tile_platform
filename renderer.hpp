@@ -40,7 +40,7 @@ struct SpriteSheet {
 };
 
 void renderSprite(Sprite s, SDL_Rect *r, int frame); 
-
+void renderHealthbar(int health, int max_health, SDL_Rect bar_dest); 
 SDL_Texture* loadTextureFromFile(char *path); 
 
 #endif

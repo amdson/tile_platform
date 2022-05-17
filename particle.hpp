@@ -1,3 +1,6 @@
+#ifndef HEADERFILE_PARTICLE
+#define HEADERFILE_PARTICLE
+
 #include <glm/glm.hpp>
 #include "renderer.hpp"
 
@@ -11,3 +14,5 @@ struct Particle {
 	int lifetime; 
 	bool gravity; 
 };
+
+#endif

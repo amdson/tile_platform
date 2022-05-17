@@ -7,6 +7,10 @@
 #include <math.h>  
 #include <vector>
 #include "inputs.hpp"
+#include "particle.hpp"
+#include "renderer.hpp"
+#include "combat.hpp"
+
 
 const int TILE_PIXELS = 128; 
 const double TILE_WIDTH = 1; 
@@ -57,15 +61,23 @@ struct TileContact {
 }; 
 
 struct Entity {
+	uint32_t entity_id; //For reference in hashmaps, etc. 
 	glm::dvec2 pos; 
 	glm::dvec2 vel; 
 	glm::dvec2 newPos; 
 	glm::dvec2 dim; 
-	uint32_t id; //For reference in hashmaps, etc. 
+	double mass; 
 	int num_contacts; 
 	TileContact tile_contacts[16]; //Track tiles entity is in contact with. 
-	char data[1024]; //Remaining elements, subject to override. 
+	int operator_index; 
+	uint32_t flags; 
+	bool deleted; 
 }; 
+
+static const uint32_t COLLIDE_TILES = 1; 
+static const uint32_t BOUNCE_ON_HIT = 1 << 1; 
+static const uint32_t ZERO_GRAVITY = 1 << 2; 
+
 
 enum MovementState 
 {   GROUND, GROUND_JUMP, JUMP1, AIR_JUMP, FALLING, WALL, WALL_JUMP
@@ -76,31 +88,110 @@ struct Camera { //Used to convert units to pixels.
 	glm::dvec2 dim; 
 	int SCREEN_WIDTH; 
 	int SCREEN_HEIGHT; 
+	int player_id; 
 }; 
 
-struct PlayerController {
-	int entity_id; //ID of player physics object. 
+struct HealthData {
+	int entity_id; //Index of entity in gamestate.entities
+	int health; 
+	int max_health;
+	int health_regen;
+	int buffer_health; 
+	int buffer_regen; 
+	int max_stamina; 
+	int stamina; 
+	int stamina_regen; 
+	uint32_t flags;  
+}; 
+
+static const uint32_t FIREBALL = 1; 
+static const uint32_t FIREFLY = 2; 
+static const uint32_t ROLLYPOLLY = 3; 
+static const uint32_t LEACH = 4; 
+static const uint32_t HUNTER = 5; 
+static const uint32_t CANNON = 6; 
+static const uint32_t NEEDLEWORKER = 7; 
+static const uint32_t SANDBOXER = 8; 
+
+
+struct FireballAI {
+	bool tracking; 
+	int power; 
+	int step; 
+	int lifespan; 
+}; 
+
+struct FireflyAI {
+	bool tracking; 
+	int power; 
+}; 
+
+struct RollypollyAI {
+	bool tracking; 
+	int power; 
+}; 
+
+union InternalAI {
+	FireballAI fa; 
+	FireflyAI fb; 
+	RollypollyAI fc; 
+}; 
+
+struct AIData {
+	int entity_id; //Index of entity in gamestate.entities
+	uint32_t type; 
+	uint32_t flags; 
+	InternalAI data; 
+};
+
+struct PlayerData {
+	int entity_id; //Index of entity in gamestate.entities
 	MovementState prev_state; 
 	MovementState state; 
 	InputState inp; 
 	InputState prev_inp; 
 	bool contact_sides[4]; 
 	int timestep; //Timestep starting from last state change. 
-	void updateInputs(InputState new_inp); 
-	void applyContacts(glm::dvec2 v, TileContact *t, int num_contacts); 
-	glm::dvec2 applyControls(glm::dvec2 v, TileContact *t, int num_contacts); 
+	int fire_cooldown; 
+};
+PlayerData init_player_data(); 
+
+const int MAX_ENTITIES = 2048; 
+struct Gamestate {
+	//Sparse vectors mapping entity ids to location in dense vector. 
+	std::vector<int> entity_map; 
+	std::vector<int> player_map; 
+	std::vector<int> health_map; 
+	std::vector<int> ai_map; 
+	std::vector<int> entity_gen; //Generation of each entity. 
+	std::vector<int> free_ids; //Ids freed by deletion. 
+
+	std::vector<Entity> entities; 
+	std::vector<PlayerData> player_data; 
+	std::vector<HealthData> health_data; 
+	std::vector<AIData> ai_data; 
+
+	std::vector<Hitbox> hitboxes;
+	std::vector<Hurtbox> hurtboxes; 
+	std::vector<Hit> hits; 
+
+	Chunk main_chunk;
+
+	std::vector<Particle> *particles; 
+	SpriteSheet *sprite_sheet; 
+	Gamestate(SpriteSheet *sheet, std::vector<Particle> *p);
+	int push_entity(); 
+	bool delete_entity(int e, int gen); 
+	int push_player(); 
+	int push_fireball(glm::dvec2 p, glm::dvec2 v); 
+	int push_firefly(glm::dvec2 p); 
+	int push_npc(); 
 }; 
 
-struct PlayerData {
-	int entity_id; 
-	int max_health; 
-	int health; 
-	int max_stamina; 
-	int stamina; 
-}; 
+void updateInputs(InputState new_inp, PlayerData *p); 
+void player_physics_update(Entity *e, PlayerData *p, Gamestate *g); 
 
 bool box_intersect(glm::dvec2 p1, glm::dvec2 d1, glm::dvec2 p2, glm::dvec2 d2); 
-
 
 //Converts a point in units to a point in pixels. 
 SDL_Point toPixelPoint(glm::dvec2 p); 

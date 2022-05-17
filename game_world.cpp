@@ -1,4 +1,6 @@
 #include "game_world.hpp"
+#include "particle.hpp"
+#include "renderer.hpp"
 
 bool operator==(const BlockIndices b1, const BlockIndices b2){
 	return b1.col == b2.col && b1.row == b2.row && b1.chunk_col == b2.chunk_col && b1.chunk_row == b2.chunk_row; 
@@ -217,32 +219,29 @@ void invalidateContacts(std::vector<TileContact> *t, ContactSide c) {
 	for (int i = 0; i < t->size(); i++) {
 		if(t->at(i).s == c) {
 			t->at(i).valid = false; 
-			if(t->at(i).valid) {
-				printf("invalidation failed, you can't code\n"); 
-			}
 		}
 	}
 }
 
-void PlayerController::updateInputs(InputState new_inp) {
-	prev_inp = inp; 
-	inp = new_inp; 
+void updateInputs(InputState new_inp, PlayerData *p) {
+	p->prev_inp = p->inp; 
+	p->inp = new_inp; 
 }
 
 //Identify which sides the player is in contact with, and update movement state. 
-void PlayerController::applyContacts(glm::dvec2 v, TileContact *t, int num_contacts) {
+void applyContacts(glm::dvec2 v, TileContact *t, int num_contacts, PlayerData *p) {
 	//Check which sides the player is in contact with. 
-	std::fill_n(contact_sides, 4, false);
+	std::fill_n(p->contact_sides, 4, false);
 	for (int i = 0; i < num_contacts; i++) {
 		TileContact tc = t[i]; 
 		// printf("side val %d\n", tc.s); 
-		contact_sides[tc.s] = true; 
+		p->contact_sides[tc.s] = true; 
 	}
-	MovementState output = state; 
-	switch (state) {
+	MovementState output = p->state; 
+	switch (p->state) {
 	case MovementState::GROUND:
-		if(!contact_sides[ContactSide::TOP]) {
-			if(contact_sides[ContactSide::LEFT] || contact_sides[ContactSide::RIGHT]) {
+		if(!p->contact_sides[ContactSide::TOP]) {
+			if(p->contact_sides[ContactSide::LEFT] || p->contact_sides[ContactSide::RIGHT]) {
 				output = MovementState::WALL; 
 			} else {
 				output = MovementState::JUMP1; 
@@ -250,9 +249,9 @@ void PlayerController::applyContacts(glm::dvec2 v, TileContact *t, int num_conta
 		}
 		break;
 	case MovementState::WALL:
-		if (contact_sides[ContactSide::TOP]) {
+		if (p->contact_sides[ContactSide::TOP]) {
 			output = MovementState::GROUND; 
-		} else if (!(contact_sides[ContactSide::LEFT] || contact_sides[ContactSide::RIGHT])) {
+		} else if (!(p->contact_sides[ContactSide::LEFT] || p->contact_sides[ContactSide::RIGHT])) {
 			output = MovementState::GROUND_JUMP; 
 		}
 		break;
@@ -261,38 +260,159 @@ void PlayerController::applyContacts(glm::dvec2 v, TileContact *t, int num_conta
 	case MovementState::GROUND_JUMP:
 	case MovementState::JUMP1:
 	case MovementState::WALL_JUMP: 
-		if (contact_sides[ContactSide::TOP]) {
+		if (p->contact_sides[ContactSide::TOP]) {
 			output = MovementState::GROUND; 
-		} else if ((contact_sides[ContactSide::LEFT] || contact_sides[ContactSide::RIGHT]) && std::abs(v.y) <= 0.04) {
+		} else if ((p->contact_sides[ContactSide::LEFT] || p->contact_sides[ContactSide::RIGHT]) && std::abs(v.y) <= 0.04) {
 			output = MovementState::WALL; 
 		}
 		break;
 	default:
 		break;
 	}
-	if(state != output) {
-		state = output;
+	if(p->state != output) {
+		p->state = output;
 		// printf("A-switching to state %d at timestep %d\n", state, timestep); 
-		timestep = 0;  
+		p->timestep = 0;  
 	}
 }
 
-glm::dvec2 PlayerController::applyControls(glm::dvec2 v, TileContact *t, int num_contacts) {
-	prev_state = state; 
-	applyContacts(v, t, num_contacts); 
+Gamestate::Gamestate(SpriteSheet *s, std::vector<Particle> *p) {
+	sprite_sheet = s; 
+	particles = p; 
+	memset(&main_chunk, 0, sizeof(Chunk));
+
+	player_map.assign(MAX_ENTITIES, -1); 
+	health_map.assign(MAX_ENTITIES, -1); 
+	entity_map.assign(MAX_ENTITIES, -1); 
+	ai_map.assign(MAX_ENTITIES, -1); 
+	entity_gen.assign(MAX_ENTITIES, 0);
+	
+}
+
+int Gamestate::push_entity() {
+	int e; 
+	if(free_ids.size() <= 0) {
+		e = entities.size(); 
+		entity_gen.push_back(0); 
+	} else {
+		e = free_ids.back(); 
+		printf("reusing id %d\n", e);
+		free_ids.pop_back(); 
+		entity_gen[e] += 1; 
+	}
+	return e; 
+}
+
+PlayerData init_player_data() {
+	PlayerData p; 
+	p.prev_state = MovementState::FALLING;
+	p.state = MovementState::FALLING; 
+	p.inp = {0}; 
+	p.prev_inp = {0}; 
+	p.timestep = 0;
+	return p; 
+}
+
+int Gamestate::push_player() {
+	int p_id = push_entity(); 
+	PlayerData p = init_player_data(); 
+	p.entity_id = p_id; 
+	p.fire_cooldown = 0; 
+	player_map[p_id] = player_data.size(); 
+	player_data.push_back(p); 
+
+	Entity e; 
+	e.entity_id = p_id; 
+	entity_map[p_id] = entities.size(); 
+	entities.push_back(e);
+
+	HealthData d; 
+	d.entity_id = p_id; 
+	d.max_health = 100; 
+	d.health = 100; 
+	d.health_regen = 1; 
+	d.buffer_regen = 10;
+	d.buffer_health = 20;  
+	health_map[p_id] = health_data.size(); 
+	health_data.push_back(d);
+	return p_id; 
+}
+
+int Gamestate::push_npc() {
+	int p_id = push_entity(); 
+	AIData a; 
+	a.entity_id = p_id; 
+	ai_map[p_id] = ai_data.size(); 
+	ai_data.push_back(a); 
+
+	Entity e = {entity_id:0, pos: glm::dvec2(0, 0), vel: glm::dvec2(0, 0), dim: glm::dvec2(1, 1), num_contacts:0};
+	e.entity_id = p_id;
+	entity_map[p_id] = entities.size(); 
+	entities.push_back(e);
+
+	HealthData d; 
+	d.entity_id = p_id;
+	health_map[p_id] = health_data.size(); 
+	health_data.push_back(d);
+	return p_id; 
+}
+
+int Gamestate::push_firefly(glm::dvec2 p) {
+	int fb_id = push_npc(); 
+	Entity *e = &entities[entity_map[fb_id]]; 
+	e->dim = glm::dvec2(1, 1); 
+	e->pos = p; 
+	e->vel = glm::dvec2(0, 0); 
+	e->flags = ZERO_GRAVITY; 
+
+	HealthData *d = &health_data[health_map[fb_id]]; 
+	d->max_health = 100; d->health = 100; d->health_regen = 0; d->buffer_health = 0; d->buffer_regen = 0; 
+	return fb_id; 
+}
+
+int Gamestate::push_fireball(glm::dvec2 p, glm::dvec2 v) {
+	int fb_id = push_npc(); 
+	Entity *e = &entities[entity_map[fb_id]]; 
+	e->dim = glm::dvec2(0.5, 1); 
+	e->pos = p; 
+	e->vel = v;
+	e->flags = ZERO_GRAVITY; 
+	HealthData *d = &health_data[health_map[fb_id]]; 
+	d->max_health = 5; d->health = 5; d->health_regen = 0; d->buffer_health = 0; d->buffer_regen = 0; 
+	AIData *ad = &ai_data[ai_map[fb_id]]; 
+	ad->type = FIREBALL; 
+	FireballAI *fba = &ai_data[ai_map[fb_id]].data.fa; 
+	fba->lifespan = 15; fba->power = 10; fba->tracking = false; fba->step = 0; 
+	return fb_id; 
+}
+
+bool Gamestate::delete_entity(int entity_id, int gen) {
+	assert(entity_id < MAX_ENTITIES); 
+	entity_gen[entity_id] += 1; 
+	free_ids.push_back(entity_id); 
+	player_map[entity_id] = -1; 
+	health_map[entity_id] = -1;  
+	entity_map[entity_id] = -1; 
+	ai_map[entity_id] = -1; 
+	entity_gen[entity_id] = -1; 
+}
+
+glm::dvec2 applyControls(glm::dvec2 v, TileContact *t, int num_contacts, PlayerData *p) {
+	p->prev_state = p->state; 
+	applyContacts(v, t, num_contacts, p); 
 	//Controller physics
-	MovementState next_state = state; 
-	bool right_face = contact_sides[ContactSide::RIGHT]; 
-	switch (state) {
+	MovementState next_state = p->state; 
+	bool right_face = p->contact_sides[ContactSide::RIGHT]; 
+	switch (p->state) {
 	case MovementState::GROUND:
-		if(inp.x > 0) {
+		if(p->inp.x > 0) {
 			v.x += GROUND_ACC; 
-		} else if(inp.x < 0) {
+		} else if(p->inp.x < 0) {
 			v.x -= GROUND_ACC; 
 		}
-		if(inp.y < 0) {
+		if(p->inp.y < 0) {
 			v.x *= 0.6; 
-		} else if(inp.y > 0) {
+		} else if(p->inp.y > 0) {
 			//Remove contact with tiles under player so jump isn't repeated. 
 			// invalidateContacts(t, ContactSide::TOP);
 			v.y += GROUND_JUMP_VEL; 
@@ -300,15 +420,15 @@ glm::dvec2 PlayerController::applyControls(glm::dvec2 v, TileContact *t, int num
 		}
 		break;
 	case MovementState::WALL:
-		if((right_face && inp.x < 0) || (!right_face && inp.x > 0)) {
+		if((right_face && p->inp.x < 0) || (!right_face && p->inp.x > 0)) {
 			v.y *= 0.5; 
 		}
-		if(inp.x > 0) {
+		if(p->inp.x > 0) {
 			v.x += GROUND_ACC; 
-		} else if(inp.x < 0) {
+		} else if(p->inp.x < 0) {
 			v.x -= GROUND_ACC; 
 		}
-		if(inp.y > 0 && prev_inp.y <= 0) {
+		if(p->inp.y > 0 && p->prev_inp.y <= 0) {
 			v.y += 0.2; 
 			if(right_face) {
 				v.x += 0.25;
@@ -319,50 +439,50 @@ glm::dvec2 PlayerController::applyControls(glm::dvec2 v, TileContact *t, int num
 		}
 		break; 
 	case MovementState::GROUND_JUMP:
-		if(inp.x > 0) {
+		if(p->inp.x > 0) {
 			v.x += 0.02; 
-		} else if(inp.x < 0) {
+		} else if(p->inp.x < 0) {
 			v.x -= 0.02; 
 		}
-		if(timestep < 10 && inp.y > 0) {
+		if(p->timestep < 10 && p->inp.y > 0) {
 			v.y += 0.03; 
 		} else {
 			next_state = JUMP1; 
 		}
 		break;
 	case MovementState::JUMP1:
-		if(inp.x > 0) {
+		if(p->inp.x > 0) {
 			v.x += AIR_ACC; 
-		} else if(inp.x < 0) {
+		} else if(p->inp.x < 0) {
 			v.x -= AIR_ACC; 
 		}
-		if(inp.y < 0) {
+		if(p->inp.y < 0) {
 			v.y -= 0.02; 
 		}
-		if(inp.y > 0 and prev_inp.y <= 0) { //Input must be re-entered. 
+		if(p->inp.y > 0 and p->prev_inp.y <= 0) { //Input must be re-entered. 
 			v.y += AIR_JUMP_VEL;
 			next_state = MovementState::AIR_JUMP; 
 		}
 		break;
 	case MovementState::AIR_JUMP:
-		if(inp.x > 0) {
+		if(p->inp.x > 0) {
 			v.x += 0.02; 
-		} else if(inp.x < 0) {
+		} else if(p->inp.x < 0) {
 			v.x -= 0.02; 
 		}
-		if(timestep < 10 && inp.y > 0) {
+		if(p->timestep < 10 && p->inp.y > 0) {
 			v.y += 0.04; 
 		} else {
 			next_state = FALLING; 
 		}
 		break; 
 	case MovementState::FALLING:
-		if(inp.x > 0) {
+		if(p->inp.x > 0) {
 			v.x += AIR_ACC; 
-		} else if(inp.x < 0) {
+		} else if(p->inp.x < 0) {
 			v.x -= AIR_ACC; 
 		}
-		if(inp.y < 0) {
+		if(p->inp.y < 0) {
 			v.y -= 0.02; 
 		}
 		break;
@@ -372,23 +492,52 @@ glm::dvec2 PlayerController::applyControls(glm::dvec2 v, TileContact *t, int num
 
 	//Basic physics 
 	v.y -= 0.02; //Gravity
-	if(contact_sides[ContactSide::TOP]) {
+	if(p->contact_sides[ContactSide::TOP]) {
 		v.x *= 0.8; //Ground friction
 	} else {
 		// v *= 0.9; //Air resistance
 		double l = glm::length(v); 
 		v = v / (1 + 0.14 * l); 
 	}
-	if(contact_sides[ContactSide::LEFT] || contact_sides[ContactSide::RIGHT]) {
+	if(p->contact_sides[ContactSide::LEFT] || p->contact_sides[ContactSide::RIGHT]) {
 		v.y *= 0.9; //Wall friction
 	}
-	timestep += 1; 
-	if(next_state != state) {
-		state = next_state; 
+	p->timestep += 1; 
+	if(next_state != p->state) {
+		p->state = next_state; 
 		// printf("C-switching to state %d at timestep %d\n", state, timestep); 
-		timestep = 0; 
+		p->timestep = 0; 
 	}
 	return v; 
+}
+
+void player_physics_update(Entity *entity, PlayerData *p, Gamestate *g) {
+	entity->vel = applyControls(entity->vel, &entity->tile_contacts[0], entity->num_contacts, p);
+	
+	// Spawn particles
+	MovementState s = p->prev_state;
+	MovementState e = p->state; 
+	if(s != e) {
+		if(e == MovementState::AIR_JUMP) {
+			glm::dvec2 cv = glm::dvec2(-0.05*p->inp.x, 0.2*std::min(-entity->vel.y, 0.0)); 
+			Particle jump_cloud = {pos: entity->pos - glm::dvec2(entity->dim.x*0.5, entity->dim.y+0.05), vel: cv, 
+									dim: glm::dvec2(1, 1), s: g->sprite_sheet->getSpriteEntry("jump_cloud"),
+									timestep: 0,
+									change_interval: 8,
+									lifetime: 23,
+									gravity: false
+			};
+			g->particles->push_back(jump_cloud); 
+		}  else if (e == MovementState::GROUND_JUMP) {
+			Particle jump_flash = {pos: entity->pos - glm::dvec2(entity->dim.x*0.5, entity->dim.y+0.05), vel: glm::dvec2(0, 0), 
+									dim: glm::dvec2(1, 1), s: g->sprite_sheet->getSpriteEntry("jump_flash"),
+									timestep: 0,
+									change_interval: 1,
+									lifetime: 16, gravity: false };
+			g->particles->push_back(jump_flash); 
+		}
+	}
+
 }
 
 //Checks whether position p still meets criteria for contact. 
@@ -462,8 +611,7 @@ void tilePhysics(Entity *e, std::vector<BlockIndices> *block_indices, Chunk *mai
 		TileContact t = e->tile_contacts[i]; 
 		e->vel = getConstrainedSurfaceVel(e->vel, t.norm); 
 	}
-	
-	//Tentative new position. 	
+	//Tentative new position.
 	e->newPos = e->pos + e->vel; 
 
 	Collision fc; 
@@ -496,8 +644,6 @@ void tilePhysics(Entity *e, std::vector<BlockIndices> *block_indices, Chunk *mai
 				if(c.t < fc.t && c.t >= 0) {
 					fc = c; 
 					contact_block = b; 
-					// cout << "Found collusion at time: " << fc.t << "\n"; 
-					// printf("Player pos %f, %f\n", fc.pos.x, fc.pos.y); 						
 				}
 			}
 		}
