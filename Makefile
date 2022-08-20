@@ -1,6 +1,6 @@
 #OBJS specifies which files to compile as part of the project
-OBJS = game_main.cpp timer.cpp game_world.cpp renderer.cpp inputs.cpp combat.cpp
-TEST_OBJS = test_game.cpp timer.cpp game_world.cpp renderer.cpp inputs.cpp combat.cpp
+OBJS = game_main.cpp timer.cpp game_world.cpp renderer.cpp inputs.cpp combat.cpp physics.cpp
+TEST_OBJS = testing\test_physics.cpp timer.cpp game_world.cpp renderer.cpp inputs.cpp combat.cpp physics.cpp
 
 #CC specifies which compiler we're using
 CC = g++
@@ -32,3 +32,8 @@ debug : $(OBJS)
 
 test : $(TEST_OBJS)
 	$(CC) $(TEST_OBJS) $(INCLUDE_PATHS) $(LIBRARY_PATHS) $(COMPILER_FLAGS) $(LINKER_FLAGS) -o $(TEST_OBJ_NAME)
+
+
+#Notes
+# g++ testing/test_physics.cpp -IC:/Users/amdic/game_code/sdl_match/glm -o test
+# g++ testing/test_poly_physics.cpp physics.cpp -IC:/mingw_dev_lib/include/SDL2 -IC:/Users/amdic/game_code/sdl_match/glm -LC:/mingw_dev_lib/lib -g -w -lmingw32 -lSDL2main -lSDL2 -o test

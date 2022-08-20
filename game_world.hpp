@@ -77,6 +77,9 @@ struct Entity {
 static const uint32_t COLLIDE_TILES = 1; 
 static const uint32_t BOUNCE_ON_HIT = 1 << 1; 
 static const uint32_t ZERO_GRAVITY = 1 << 2; 
+static const uint32_t IN_COLLISION = 1 << 3; 
+static const uint32_t ATTACKER_HIT = 1 << 4; 
+static const uint32_t TARGET_HIT = 1 << 5; 
 
 
 enum MovementState 
@@ -156,21 +159,66 @@ struct PlayerData {
 };
 PlayerData init_player_data(); 
 
+
+/*
+ECS Write-Up
+ECS system is optimized for saving state every iteration. 
+
+Startup: 
+1. Initialize components
+2. Add component names to hashmap
+Runtime: 
+1. Iterate through vector of main component normally, reference entity id for other components. 
+2. Push component naively to add to entity. 
+3. Delete components 
+4. Store remaining components
+5. Copy components for next iteration. 
+Rules for ECS
+*/
+
 const int MAX_ENTITIES = 2048; 
-struct Gamestate {
-	//Sparse vectors mapping entity ids to location in dense vector. 
+
+struct RollbackStorage {
+	std::vector<int> ids; 
+	std::vector<Entity> entities; 
+	std::vector<PlayerData> player_data; 
+	std::vector<HealthData> health_data; 
+	std::vector<AIData> ai_data;  
+}; 
+
+struct RollbackECS {
+	//Sparse vectors mapping entity ids to location in dense vector.
+	std::vector<int> id_map;  
 	std::vector<int> entity_map; 
 	std::vector<int> player_map; 
 	std::vector<int> health_map; 
 	std::vector<int> ai_map; 
-	std::vector<int> entity_gen; //Generation of each entity. 
-	std::vector<int> free_ids; //Ids freed by deletion. 
 
+	std::vector<int> ids; 
 	std::vector<Entity> entities; 
 	std::vector<PlayerData> player_data; 
 	std::vector<HealthData> health_data; 
 	std::vector<AIData> ai_data; 
 
+	std::vector<int> free_ids; //Ids freed by deletion. 
+
+	std::vector<RollbackStorage> r; 
+	int r_pos; 
+
+	int new_entity(); 
+	bool delete_entity(int e); 
+	void save_update(RollbackStorage *s); 
+	void roll_save(); 
+
+	int push_player(); 
+	int push_fireball(glm::dvec2 p, glm::dvec2 v); 
+	int push_firefly(glm::dvec2 p); 
+	int push_npc(); 
+	RollbackECS(int rollback_window); 
+}; 
+
+struct Gamestate {
+	RollbackECS *ecs; 
 	std::vector<Hitbox> hitboxes;
 	std::vector<Hurtbox> hurtboxes; 
 	std::vector<Hit> hits; 
@@ -180,12 +228,6 @@ struct Gamestate {
 	std::vector<Particle> *particles; 
 	SpriteSheet *sprite_sheet; 
 	Gamestate(SpriteSheet *sheet, std::vector<Particle> *p);
-	int push_entity(); 
-	bool delete_entity(int e, int gen); 
-	int push_player(); 
-	int push_fireball(glm::dvec2 p, glm::dvec2 v); 
-	int push_firefly(glm::dvec2 p); 
-	int push_npc(); 
 }; 
 
 void updateInputs(InputState new_inp, PlayerData *p); 

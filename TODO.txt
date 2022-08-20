@@ -1,0 +1,10 @@
+- Box - polygon collisions
+- Smaller tiles
+- Tile API w/ chunks
+- Cool tile placement
+- Implement animations for player. 
+- Implement attacks for player
+- Implement XML parser
+- Collision handlers for everything
+- Add versioning for entities/components
+- Formalize adding ECS components, iterating through entities.

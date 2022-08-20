@@ -12,6 +12,8 @@ struct InputState {
 	bool right_mouse_down; 
 	bool j; 
     bool quit; 
+	SDL_Point mouse_buffer[64]; 
+	int buffer_index; 
 }; 
 
 InputState getSDLInputs(InputState s);

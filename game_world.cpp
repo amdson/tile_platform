@@ -38,6 +38,11 @@ SDL_Rect toRect(glm::dvec2 p, glm::dvec2 d, Camera c) {
 
 //Squares are represented by row and column. 
 void listIntersectingSquares(glm::dvec2 s, glm::dvec2 e, std::vector<BlockIndices> *l) {
+	float can = s.x + s.y + e.x + e.y; 
+	if(!isfinite(can) || isnan(can)) {
+		printf("WARNING: Non-finite input to listIntersectingSquares\n"); 
+		return; 
+	}
 	s /= TILE_WIDTH; //Set tile size to unit length. 
 	e /= TILE_WIDTH; 
 	BlockIndices t; 
@@ -192,28 +197,11 @@ Collision getTileBoxCollision(BlockIndices b, glm::dvec2 p1, glm::dvec2 p2, glm:
 	return c; 
 }
 
-glm::dvec2 getConstrainedSurfaceVel(glm::dvec2 v, glm::dvec2 norm) {
-	double norm_vel = std::min(glm::dot(v, norm), 0.0); 
-	v -= norm*norm_vel; 
-	// switch (s)
-	// {
-	// case ContactSide::TOP:
-	// 	v.y = std::max(v.y, 0.0); 
-	// 	break;
-	// case ContactSide::BOTTOM:
-	// 	v.y = std::min(v.y, 0.0); 
-	// 	break;
-	// case ContactSide::RIGHT:
-	// 	v.y = std::max(v.x, 0.0); 
-	// 	break;
-	// case ContactSide::LEFT:
-	// 	v.y = std::min(v.x, 0.0); 
-	// 	break;
-	// default:
-	// 	break;
-	// }
-	return v; 
-}
+// glm::dvec2 getConstrainedSurfaceVel(glm::dvec2 v, glm::dvec2 norm) {
+// 	double norm_vel = std::min(glm::dot(v, norm), 0.0); 
+// 	v -= norm*norm_vel; 
+// 	return v; 
+// }
 
 void invalidateContacts(std::vector<TileContact> *t, ContactSide c) {
 	for (int i = 0; i < t->size(); i++) {
@@ -276,77 +264,126 @@ void applyContacts(glm::dvec2 v, TileContact *t, int num_contacts, PlayerData *p
 	}
 }
 
-Gamestate::Gamestate(SpriteSheet *s, std::vector<Particle> *p) {
-	sprite_sheet = s; 
-	particles = p; 
-	memset(&main_chunk, 0, sizeof(Chunk));
 
+RollbackECS::RollbackECS(int rollback_window) {
+	id_map.assign(MAX_ENTITIES, -1); 
 	player_map.assign(MAX_ENTITIES, -1); 
 	health_map.assign(MAX_ENTITIES, -1); 
 	entity_map.assign(MAX_ENTITIES, -1); 
 	ai_map.assign(MAX_ENTITIES, -1); 
-	entity_gen.assign(MAX_ENTITIES, 0);
-	
+
+	for (int i = 0; i < rollback_window; i++) {
+		r.push_back(RollbackStorage()); 
+	}
+	r_pos = 0; 
 }
 
-int Gamestate::push_entity() {
+int RollbackECS::new_entity() {
+	if(ids.size() == MAX_ENTITIES) {
+		printf("MAX ENTITIES REACHED\n");
+		return -1; 
+	}
 	int e; 
 	if(free_ids.size() <= 0) {
-		e = entities.size(); 
-		entity_gen.push_back(0); 
+		e = ids.size(); 
 	} else {
 		e = free_ids.back(); 
-		printf("reusing id %d\n", e);
+		// printf("reusing id %d\n", e);
 		free_ids.pop_back(); 
-		entity_gen[e] += 1; 
 	}
+	id_map[e] = ids.size(); 
+	ids.push_back(e); 
 	return e; 
 }
 
-PlayerData init_player_data() {
-	PlayerData p; 
-	p.prev_state = MovementState::FALLING;
-	p.state = MovementState::FALLING; 
-	p.inp = {0}; 
-	p.prev_inp = {0}; 
-	p.timestep = 0;
-	return p; 
+bool RollbackECS::delete_entity(int entity_id) {
+	free_ids.push_back(entity_id); 
+	id_map[entity_id] = -1; 
+	player_map[entity_id] = -1; 
+	health_map[entity_id] = -1;  
+	entity_map[entity_id] = -1; 
+	ai_map[entity_id] = -1; 
 }
 
-int Gamestate::push_player() {
-	int p_id = push_entity(); 
-	PlayerData p = init_player_data(); 
-	p.entity_id = p_id; 
-	p.fire_cooldown = 0; 
-	player_map[p_id] = player_data.size(); 
-	player_data.push_back(p); 
-
-	Entity e; 
-	e.entity_id = p_id; 
-	entity_map[p_id] = entities.size(); 
-	entities.push_back(e);
-
-	HealthData d; 
-	d.entity_id = p_id; 
-	d.max_health = 100; 
-	d.health = 100; 
-	d.health_regen = 1; 
-	d.buffer_regen = 10;
-	d.buffer_health = 20;  
-	health_map[p_id] = health_data.size(); 
-	health_data.push_back(d);
-	return p_id; 
+//Take vectors in RollbackStorage, and swap their contents with active vectors. 
+//Now active vectors contain out-of-date info, and storage vectors contain previous run. 
+//Iterate through the storage vectors, and replace content of active vectors while removing deleted entries. 
+//Deleted entries are left in storage vectors for efficiency. 
+void RollbackECS::save_update(RollbackStorage *s) {
+	s->ids.resize(ids.size()); s->entities.resize(entities.size()); s->player_data.resize(player_data.size()); 
+	s->ai_data.resize(ai_data.size()); s->health_data.resize(health_data.size()); 
+	
+	s->ids.swap(ids); s->entities.swap(entities); s->ai_data.swap(ai_data); 
+	s->health_data.swap(health_data); s->player_data.swap(player_data); 
+	
+	int count = 0; 
+	for (int i = 0; i < s->ids.size(); i++) {
+		int id = s->ids[i]; 
+		if(id_map[id] == i) {
+			ids[count] = id;
+			id_map[id] = count; 
+			count += 1; 
+		}
+	}
+	ids.resize(count); 
+	count = 0; 
+	for (int i = 0; i < s->entities.size(); i++) {
+		Entity e = s->entities[i]; 
+		if(entity_map[e.entity_id] == i) {
+			entities[count] = e;
+			entity_map[e.entity_id] = count; 
+			count += 1; 
+		}
+	}
+	entities.resize(count); 
+	count = 0; 
+	for (int i = 0; i < s->player_data.size(); i++) {
+		PlayerData e = s->player_data[i]; 
+		if(player_map[e.entity_id] == i) {
+			player_data[count] = e;
+			player_map[e.entity_id] = count; 
+			count += 1; 
+		}
+	}
+	player_data.resize(count); 
+	count = 0; 
+	for (int i = 0; i < s->ai_data.size(); i++) {
+		AIData e = s->ai_data[i]; 
+		if(ai_map[e.entity_id] == i) {
+			ai_data[count] = e;
+			ai_map[e.entity_id] = count; 
+			count += 1; 
+		}
+	}
+	ai_data.resize(count); 
+	count = 0; 
+	for (int i = 0; i < s->health_data.size(); i++) {
+		HealthData e = s->health_data[i]; 
+		if(health_map[e.entity_id] == i) {
+			health_data[count] = e;
+			health_map[e.entity_id] = count; 
+			count += 1; 
+		}
+	}
+	health_data.resize(count); 
 }
 
-int Gamestate::push_npc() {
-	int p_id = push_entity(); 
+void RollbackECS::roll_save() {
+	RollbackStorage *rs = &r[r_pos % r.size()];
+	save_update(rs); 
+	r_pos = (r_pos+1)%r.size(); 
+}
+
+int RollbackECS::push_npc() {
+	int p_id = new_entity(); 
+
 	AIData a; 
 	a.entity_id = p_id; 
 	ai_map[p_id] = ai_data.size(); 
 	ai_data.push_back(a); 
 
-	Entity e = {entity_id:0, pos: glm::dvec2(0, 0), vel: glm::dvec2(0, 0), dim: glm::dvec2(1, 1), num_contacts:0};
-	e.entity_id = p_id;
+	Entity e = {entity_id:p_id, pos: glm::dvec2(0, 0), vel: glm::dvec2(0, 0), dim: glm::dvec2(1, 1), 
+					mass:1.0, num_contacts:0};
 	entity_map[p_id] = entities.size(); 
 	entities.push_back(e);
 
@@ -357,12 +394,13 @@ int Gamestate::push_npc() {
 	return p_id; 
 }
 
-int Gamestate::push_firefly(glm::dvec2 p) {
+int RollbackECS::push_firefly(glm::dvec2 p) {
 	int fb_id = push_npc(); 
 	Entity *e = &entities[entity_map[fb_id]]; 
 	e->dim = glm::dvec2(1, 1); 
 	e->pos = p; 
 	e->vel = glm::dvec2(0, 0); 
+	e->mass = 1; 
 	e->flags = ZERO_GRAVITY; 
 
 	HealthData *d = &health_data[health_map[fb_id]]; 
@@ -372,7 +410,7 @@ int Gamestate::push_firefly(glm::dvec2 p) {
 	return fb_id; 
 }
 
-int Gamestate::push_fireball(glm::dvec2 p, glm::dvec2 v) {
+int RollbackECS::push_fireball(glm::dvec2 p, glm::dvec2 v) {
 	int fb_id = push_npc(); 
 	Entity *e = &entities[entity_map[fb_id]]; 
 	e->dim = glm::dvec2(0.5, 1); 
@@ -384,19 +422,53 @@ int Gamestate::push_fireball(glm::dvec2 p, glm::dvec2 v) {
 	AIData *ad = &ai_data[ai_map[fb_id]]; 
 	ad->type = FIREBALL; 
 	FireballAI *fba = &ai_data[ai_map[fb_id]].data.fa; 
-	fba->lifespan = 25; fba->power = 10; fba->tracking = false; fba->step = 0; 
+	fba->lifespan = 25; fba->power = 1; fba->tracking = false; fba->step = 0; 
 	return fb_id; 
 }
 
-bool Gamestate::delete_entity(int entity_id, int gen) {
-	assert(entity_id < MAX_ENTITIES); 
-	entity_gen[entity_id] += 1; 
-	free_ids.push_back(entity_id); 
-	player_map[entity_id] = -1; 
-	health_map[entity_id] = -1;  
-	entity_map[entity_id] = -1; 
-	ai_map[entity_id] = -1; 
-	entity_gen[entity_id] = -1; 
+
+int RollbackECS::push_player() {
+	int p_id = new_entity(); 
+	PlayerData p = init_player_data(); 
+	p.entity_id = p_id; 
+	p.fire_cooldown = 0; 
+	player_map[p_id] = player_data.size(); 
+	player_data.push_back(p); 
+
+	Entity e; 
+	e.entity_id = p_id; 
+
+	entity_map[p_id] = entities.size(); 
+	entities.push_back(e);
+
+	HealthData d; 
+	d.entity_id = p_id; 
+	d.max_health = 100; 
+	d.health = 100; 
+	d.health_regen = 1; 
+	d.buffer_regen = 10;
+	d.buffer_health = 20;  
+
+	health_map[p_id] = health_data.size(); 
+	health_data.push_back(d);
+	return p_id; 
+}
+
+Gamestate::Gamestate(SpriteSheet *s, std::vector<Particle> *p) {
+	ecs = new RollbackECS(16); 
+	sprite_sheet = s; 
+	particles = p; 
+	memset(&main_chunk, 0, sizeof(Chunk));
+}
+
+PlayerData init_player_data() {
+	PlayerData p; 
+	p.prev_state = MovementState::FALLING;
+	p.state = MovementState::FALLING; 
+	p.inp = {0}; 
+	p.prev_inp = {0}; 
+	p.timestep = 0;
+	return p; 
 }
 
 glm::dvec2 applyControls(glm::dvec2 v, TileContact *t, int num_contacts, PlayerData *p) {

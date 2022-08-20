@@ -57,6 +57,8 @@ int main( int argc, char* args[] ) {
 
 	camera.pos = glm::dvec2(0, 0);
 	camera.dim = glm::dvec2(16, 16); 
+	glm::dvec2 camera_offset = glm::dvec2(8, 8); 
+
 	camera.SCREEN_HEIGHT = SCREEN_HEIGHT; 
 	camera.SCREEN_WIDTH = SCREEN_WIDTH; 
 
@@ -95,15 +97,17 @@ int main( int argc, char* args[] ) {
 
 	vector<BlockIndices> block_indices; 
 
+	RollbackECS *ecs = gamestate.ecs; 
+
 	//Main player is first entry in gamestate.player_data
-	Entity player = {entity_id:0, pos: glm::dvec2(5, 5), vel: glm::dvec2(0, 0), dim: glm::dvec2(0.5, 0.5), num_contacts:0}; 
-	player.entity_id = gamestate.push_player();
-	gamestate.entities[gamestate.entity_map[player.entity_id]] = player; 
+	Entity player = {entity_id:0, pos: glm::dvec2(5, 5), vel: glm::dvec2(0, 0), dim: glm::dvec2(0.5, 0.5), mass:1.0, num_contacts:0}; 
+	player.entity_id = ecs->push_player();
+	ecs->entities[ecs->entity_map[player.entity_id]] = player; 
 
 	player_sprite = sprite_sheet->getSpriteEntry("player_dot"); 
 
 	glm::dvec2 firefly_pos = glm::dvec2(8, 8); 
-	int firefly_id = gamestate.push_firefly(firefly_pos); 
+	int firefly_id = ecs->push_firefly(firefly_pos); 
 
 	//While application is running
 	while(!quit ) {
@@ -115,13 +119,13 @@ int main( int argc, char* args[] ) {
 
 		// Game updates //////////////////////////////////////////////////////////
 		while (accumulator*UPDATES_PER_SECOND > TICKS_PER_SECOND) {
-			int pid = gamestate.player_data[0].entity_id; 
-			Entity *p = &gamestate.entities[pid]; 
+			int pid = ecs->player_data[0].entity_id; 
+			Entity *p = &ecs->entities[pid]; 
 
 			// printf("getting inputs\n"); 
-			InputState curr_input = getSDLInputs(gamestate.player_data[gamestate.player_map[0]].inp); 
+			InputState curr_input = getSDLInputs(ecs->player_data[ecs->player_map[0]].inp); 
 			quit = curr_input.quit; 
-			updateInputs(curr_input, &gamestate.player_data[gamestate.player_map[0]]);
+			updateInputs(curr_input, &ecs->player_data[ecs->player_map[0]]);
 
 			gamestate.hurtboxes.clear(); 
 			gamestate.hitboxes.clear(); 
@@ -138,7 +142,7 @@ int main( int argc, char* args[] ) {
 
 			// printf("getting blocks\n"); 
 			//Place blocks
-			PlayerData *pd = &gamestate.player_data[gamestate.player_map[0]];
+			PlayerData *pd = &ecs->player_data[ecs->player_map[0]];
 			pd->fire_cooldown -= 1; 
 
 			if(pd->inp.right_mouse_down) {
@@ -164,42 +168,31 @@ int main( int argc, char* args[] ) {
 				glm::dvec2 dir = mouse_e - p->pos; 
 				dir = 0.3 * dir / glm::length(dir); 
 				glm::dvec2 fp = 4.0*dir + p->pos; 
-				int fid = gamestate.push_fireball(fp, dir); //TODO Replace with queue to make sure pushes happen between frames. 
-				AIData fb = gamestate.ai_data[gamestate.ai_map[fid]]; 
+				int fid = ecs->push_fireball(fp, dir); //TODO Replace with queue to make sure pushes happen between frames. 
+				AIData fb = ecs->ai_data[ecs->ai_map[fid]]; 
 				printf("New fireball data\n id %d, eid %d, step %d, lifespan %d\n", fid, fb.entity_id, 
 								fb.data.fa.step, fb.data.fa.lifespan);
 			}
-			// printf("len ai %d\n", gamestate.ai_data.size()); 
-			for (int i = 0; i < gamestate.ai_data.size(); i++) {
-				AIData *ad = &gamestate.ai_data[i]; 
+			// printf("len ai %d\n", ecs->ai_data.size()); 
+			for (int i = 0; i < ecs->ai_data.size(); i++) {
+				AIData *ad = &ecs->ai_data[i]; 
 				int eid = ad->entity_id; 
-				if(gamestate.ai_map[eid] != i) {
+				if(ecs->ai_map[eid] != i) {
 					continue; 
 				}
 				int ai_type = ad->type; 
 				// printf("AIData id %d, AI type %d\n", eid, ai_type); 
 				if(ai_type == FIREBALL) {
 					FireballAI *fb_a = &ad->data.fa; 
-					Entity *e = &gamestate.entities[gamestate.entity_map[eid]]; 
+					Entity *e = &ecs->entities[ecs->entity_map[eid]]; 
 					fb_a->step += 1; 
 					Hurtbox h = {id: gamestate.hurtboxes.size(), parent_id: e->entity_id, pos: e->pos, dim: e->dim, weight: 1, power: fb_a->power};
 					gamestate.hurtboxes.push_back(h);
 					if(fb_a->step >= fb_a->lifespan) {
-						// for (int i = 0; i < gamestate.ai_data.size(); i++) {
-						// 	AIData *ad = &gamestate.ai_data[i]; 
-						// 	int eid = ad->entity_id; 
-						// 	printf("%d ", eid); 
-						// }
-						// printf("\n"); 
-						// for (int i = 0; i < 10; i++) {
-						// 	int ind = gamestate.ai_map[i];
-						// 	printf("(%d, %d) ", i, ind);
-						// }
-						// printf("\n");
-						gamestate.delete_entity(ad->entity_id, gamestate.entity_gen[ad->entity_id]); 
+						ecs->delete_entity(ad->entity_id); 
 					}
 				} else if (ai_type = FIREFLY) {
-					Entity *e = &gamestate.entities[gamestate.entity_map[eid]]; 
+					Entity *e = &ecs->entities[ecs->entity_map[eid]]; 
 					Hitbox h = {id: gamestate.hitboxes.size(), parent_id: e->entity_id, pos: e->pos, dim: e->dim}; 
 					gamestate.hitboxes.push_back(h); 
 				}
@@ -207,27 +200,27 @@ int main( int argc, char* args[] ) {
 
 			// printf("entity physics\n"); 
 			//Physics loop
-			for (int i = 0; i < gamestate.entities.size(); i++) {
-				Entity *e = &gamestate.entities[i]; 
+			for (int i = 0; i < ecs->entities.size(); i++) {
+				Entity *e = &ecs->entities[i]; 
 				int eid = e->entity_id; 
-				if(gamestate.entity_map[eid] != i) {
+				if(ecs->entity_map[eid] != i) {
 					continue; 
 				}
 				filterTileContacts(e, &block_indices, &gamestate.main_chunk); 
 			}
 
-			for (int i = 0; i < gamestate.player_data.size(); i++) {
-				PlayerData *p = &gamestate.player_data[i]; 
+			for (int i = 0; i < ecs->player_data.size(); i++) {
+				PlayerData *p = &ecs->player_data[i]; 
 				int entity_id = p->entity_id; 
-				Entity *e = &gamestate.entities[gamestate.entity_map[entity_id]]; 
+				Entity *e = &ecs->entities[ecs->entity_map[entity_id]]; 
 				player_physics_update(e, p, &gamestate); 
 			}
 			
 			//Tile physics solver for all entities. 
-			for (int i = 0; i < gamestate.entities.size(); i++) {
-				Entity *e = &gamestate.entities[i]; 
+			for (int i = 0; i < ecs->entities.size(); i++) {
+				Entity *e = &ecs->entities[i]; 
 				int eid = e->entity_id; 
-				if(gamestate.entity_map[eid] != i) {
+				if(ecs->entity_map[eid] != i) {
 					continue; 
 				}
 				tilePhysics(e, &block_indices, &gamestate.main_chunk); 
@@ -248,7 +241,9 @@ int main( int argc, char* args[] ) {
 
 			// printf("running hitboxes\n"); 
 			addHits(&gamestate.hurtboxes, &gamestate.hitboxes, &gamestate.hits); 
-			// printf("Num hits %d\n", gamestate.hits.size()); 
+			if(gamestate.hits.size() > 0) {
+				printf("%d hits detected\n", gamestate.hits.size()); 
+			}
 			for (int i = 0; i < gamestate.hits.size(); i++) {
 				Hit h = gamestate.hits[i]; 
 				Hitbox hitbox = h.hitbox; 
@@ -257,22 +252,25 @@ int main( int argc, char* args[] ) {
 				int target_id = hitbox.parent_id; 
 				int attacker_id = hurtbox.parent_id; 
 
-				Entity *t = &gamestate.entities[gamestate.entity_map[target_id]]; 
-				Entity *a = &gamestate.entities[gamestate.entity_map[attacker_id]];
+				Entity *t = &ecs->entities[ecs->entity_map[target_id]]; 
+				Entity *a = &ecs->entities[ecs->entity_map[attacker_id]];
+				t->flags = t->flags | TARGET_HIT; 
+				a->flags = t->flags | ATTACKER_HIT; 
 
 				glm::dvec2 hit_vel = a->vel + hurtbox.vel - t->vel; 
 				glm::dvec2 delta_v = hit_vel * hurtbox.weight / t->mass; 
 				a->vel -= delta_v; 
 				t->vel += delta_v; 
 
-				if(gamestate.health_map[target_id] > 0) {
-					HealthData *h = &gamestate.health_data[gamestate.health_map[target_id]]; 
-					h->health = std::max(0, (int) (h->health - hurtbox.power)); 
+				if(ecs->health_map[target_id] > 0) {
+					HealthData *h = &ecs->health_data[ecs->health_map[target_id]]; 
+					h->health = h->health - hurtbox.power; 
+					printf("handled hit, new target health %d\n", h->health); 
 				}
 			}
 
-			for (int i = 0; i < gamestate.health_data.size(); i++) {
-				HealthData *h = &gamestate.health_data[i]; 
+			for (int i = 0; i < ecs->health_data.size(); i++) {
+				HealthData *h = &ecs->health_data[i]; 
 				if(h->health >= h->max_health) {
 					h->health = h->max_health; 
 				} else if (h->health > h->max_health - h->buffer_health) {
@@ -280,7 +278,30 @@ int main( int argc, char* args[] ) {
 				} else {
 					h->health += h->health_regen; 
 				}
+				if(h->health <= 0) {
+					ecs->delete_entity(h->entity_id); 
+				}
 			}
+
+			//Follow up on attack hits
+			for (int i = 0; i < ecs->ai_data.size(); i++) {
+				AIData *ad = &ecs->ai_data[i]; 
+				int eid = ad->entity_id; 
+				if(ecs->ai_map[eid] != i) {
+					continue; 
+				}
+				if(ecs->entity_map[eid] >= 0) {
+					Entity *e = &ecs->entities[ecs->entity_map[eid]]; 
+					if(ad->type == FIREBALL && (e->flags & (ATTACKER_HIT | TARGET_HIT))) {
+						ecs->delete_entity(eid); 
+					}
+					e->flags = e->flags & (~(ATTACKER_HIT | TARGET_HIT)); 
+				}
+			}
+
+
+
+			ecs->roll_save(); //Save current components, switch to consolidated components for next round. 
 
 			//Filter and update particles. 
 			int valid_particles = 0; 
@@ -301,6 +322,8 @@ int main( int argc, char* args[] ) {
 			countedUpdates ++; 
 			accumulator -= TICKS_PER_UPDATE; 
 		}
+		Entity pe = ecs->entities[ecs->entity_map[ecs->player_data[0].entity_id]]; 
+		camera.pos = pe.pos - camera_offset; 
 
 		// Render ////////////////////////////////////////////////////////////
 
@@ -330,13 +353,13 @@ int main( int argc, char* args[] ) {
 			SDL_RenderCopy(gRenderer, TILE_SHEET, &tile_source, &tile_dest);
 		}
 
-		// printf("rendering %d entities\n", gamestate.entities.size()); 
+		// printf("rendering %d entities\n", ecs->entities.size()); 
 		//Render entities
-		for (int i = 0; i < gamestate.entities.size(); i++) {
+		for (int i = 0; i < ecs->entities.size(); i++) {
 			//Entity body
-			Entity *e = &gamestate.entities[i]; 
+			Entity *e = &ecs->entities[i]; 
 			int eid = e->entity_id; 
-			if(gamestate.entity_map[eid] != i) {
+			if(ecs->entity_map[eid] != i) {
 				continue; 
 			}
 			// printf("entity id: %d\n", e->entity_id); 
@@ -344,8 +367,8 @@ int main( int argc, char* args[] ) {
 			renderSprite(player_sprite, &sprite_dest, 0); 
 
 			//Entity healthbar
-			if(gamestate.health_map[e->entity_id] >= 0 && e->entity_id != gamestate.player_data[0].entity_id) {
-				HealthData *h = &gamestate.health_data[gamestate.health_map[e->entity_id]]; 
+			if(ecs->health_map[e->entity_id] >= 0 && e->entity_id != ecs->player_data[0].entity_id) {
+				HealthData *h = &ecs->health_data[ecs->health_map[e->entity_id]]; 
 				glm::dvec2 bar_dim = glm::dvec2(e->dim.x, e->dim.x / 8); 
 				glm::dvec2 bar_pos = glm::dvec2(0, 0.1+e->dim.y); 
 				SDL_Rect bar_dest = toRect(e->pos + bar_pos, bar_dim, camera); 
@@ -355,7 +378,7 @@ int main( int argc, char* args[] ) {
 
 		//Render player healthbar
 		SDL_Rect bar_dest = {0, 0, 100, 12};
-		HealthData *h = &gamestate.health_data[gamestate.health_map[gamestate.player_data[0].entity_id]]; 
+		HealthData *h = &ecs->health_data[ecs->health_map[ecs->player_data[0].entity_id]]; 
 		renderHealthbar(h->health, h->max_health, bar_dest); 
 
 
