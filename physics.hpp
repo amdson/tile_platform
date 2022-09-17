@@ -3,33 +3,21 @@
 
 #include <glm/glm.hpp>
 #include <vector>
-
-const int CHUNK_TILES = 32; 
+#include "chunk.hpp"
 
 const double COLLISION_BUFFER = 1e-2; //Collisions happen 1e-2 from surface. 
 const double CONTACT_BUFFER = 2e-2; //Contacts are maintained when within 2e-2 of surface. 
 
-//Special case for rapid collision testing. 
-struct PhysicsRect {
-    glm::dvec2 pos;
-    glm::dvec2 dim; 
-};
+const double AIR_ACC = 0.01; 
+const double GROUND_ACC = 0.04; 
+const double GROUND_JUMP_VEL = 0.15; 
+const double AIR_JUMP_VEL = 0.2; 
 
-struct Tile {
-   char tile_id;
-   char damage; 
-};
-
-struct Chunk {
-	int row;
-	int col; 
-	Tile tiles[CHUNK_TILES*CHUNK_TILES];
-}; 
-
-struct BlockIndices {
-	int row, col; 
-	int chunk_row, chunk_col; 
-}; 
+// //Special case for rapid collision testing. 
+// struct PhysicsRect {
+//     glm::dvec2 pos;
+//     glm::dvec2 dim; 
+// };
 
 struct Collision {
     glm::dvec2 pos, norm;
@@ -54,6 +42,8 @@ const uint32_t COLLISION_FRICTION = 1 << 3;
 
 struct PhysicsPolygon {
     glm::dvec2 pos; 
+    glm::dvec2 vel; 
+    glm::dvec2 n_pos; 
     glm::dvec2 vertices[6]; 
     int num_vertices;
     TileContact contacts[16]; 
@@ -61,7 +51,7 @@ struct PhysicsPolygon {
     double mass = 1.0; 
     double elasticity = 1.0; 
     double friction_coef = 0.1; 
-    uint32_t physics_flags; 
+    uint32_t physics_flags = 0; 
 };
 
 struct Rect {
@@ -70,12 +60,12 @@ struct Rect {
 }; 
 
 bool point_segment_update(glm::dvec2 p0, glm::dvec2 p1, glm::dvec2 s0, glm::dvec2 s1, Collision *c); 
-bool polygon_rectangle_update(PhysicsPolygon poly, glm::dvec2 p0, glm::dvec2 p1, Rect r, Collision *c); 
+bool polygon_rectangle_update(PhysicsPolygon* poly, glm::dvec2 p0, glm::dvec2 p1, Rect r, Collision *c); 
 
 glm::dvec2 getConstrainedSurfaceVel(glm::dvec2 v, glm::dvec2 norm); 
 
 bool checkTileContact(glm::dvec2 p, glm::dvec2 d, TileContact t); 
-bool checkTileContactMaintained(glm::dvec2 p, glm::dvec2 d, TileContact t, BlockIndices b); 
+bool checkTileContactMaintained(PhysicsPolygon* p, TileContact t, BlockIndices b);
 void invalidateContacts(std::vector<TileContact> *t, glm::dvec2 contact_norm); 
 void filterTileContacts(PhysicsPolygon *poly, std::vector<BlockIndices> *block_indices, Chunk *main_chunk);
 void tilePhysics(PhysicsPolygon *poly, std::vector<BlockIndices> *block_indices, Chunk *main_chunk);
